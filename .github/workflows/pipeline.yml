@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: "*/5 * * * *"      # har 5 minute (UTC, minimum allowed by GitHub)
+    - cron: "30 3 * * *"      # har 5 minute (UTC, minimum allowed by GitHub)
   workflow_dispatch:           # manual run button
 
 permissions:

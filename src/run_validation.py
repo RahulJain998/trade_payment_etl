@@ -8,7 +8,8 @@ from datetime import datetime
 import pandas as pd
 
 import validators as v
-from config import DB_PATH, OUTPUT_DIR, SQL_FILE
+from config import DB_PATH, OUTPUT_DIR, SQL_FILE, now_ist
+from history import append_history
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s | %(levelname)s | %(message)s")
@@ -55,9 +56,9 @@ def build_report(payments, results, fx, out_path):
     total, clean = len(payments), len(payments) - len(bad_ids)
     kpi = pd.DataFrame({
         "metric": ["Total records", "Records with issues", "Clean records",
-                   "Data quality %", "Run time"],
+                   "Data quality %", "Run time (IST)"],
         "value": [total, len(bad_ids), clean, round(clean / total * 100, 2),
-                  datetime.now().strftime("%Y-%m-%d %H:%M")]})
+                  now_ist().strftime("%Y-%m-%d %H:%M")]})
 
     usd = v.add_usd(payments.dropna(subset=["amount"]), fx)
     by_country = (usd.groupby("country")["amount_usd"].agg(["count", "sum"])
@@ -91,8 +92,9 @@ def main():
     fx = pd.read_sql("SELECT * FROM fx_rates", conn)
     conn.close()
 
-    out = OUTPUT_DIR / f"validation_report_{datetime.now():%Y%m%d_%H%M}.xlsx"
+    out = OUTPUT_DIR / f"validation_report_{now_ist():%Y%m%d_%H%M%S}.xlsx"
     summary, kpi = build_report(payments, results, fx, out)
+    append_history(summary, kpi, out)
 
     print("\n" + summary.to_string(index=False))
     print("\n" + kpi.to_string(index=False))

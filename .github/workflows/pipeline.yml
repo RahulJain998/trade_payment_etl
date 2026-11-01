@@ -1,0 +1,37 @@
+name: Trade Payment ETL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "30 20 * * *"      # daily 02:00 IST
+  workflow_dispatch:           # manual run button
+
+jobs:
+  etl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Unit tests
+        run: pytest tests/ -q
+
+      - name: Run ETL + validation
+        run: |
+          python src/etl_pipeline.py || code=$?
+          # exit 1 = data issues found (expected, report generated), anything else = real failure
+          if [ "${code:-0}" -ge 2 ]; then exit $code; fi
+
+      - name: Upload validation report
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-report
+          path: output/*.xlsx

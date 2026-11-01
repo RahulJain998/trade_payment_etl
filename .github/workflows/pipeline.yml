@@ -3,14 +3,22 @@ name: Trade Payment ETL
 on:
   push:
     branches: [main]
-  pull_request:
   schedule:
-    - cron: "30 20 * * *"      # daily 02:00 IST
+    - cron: "*/5 * * * *"      # har 5 minute (UTC, minimum allowed by GitHub)
   workflow_dispatch:           # manual run button
+
+permissions:
+  contents: write              # needed so the bot can commit new data + history
+
+concurrency:                   # ek time par ek hi run (data overlap na ho)
+  group: trade-etl
+  cancel-in-progress: false
 
 jobs:
   etl:
     runs-on: ubuntu-latest
+    env:
+      IS_SCHEDULED: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -21,17 +29,45 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      - name: Show trigger
+        run: echo "Trigger=${{ github.event_name }} | UTC=$(date -u)"
+
       - name: Unit tests
         run: pytest tests/ -q
+
+      - name: Add new incoming data
+        if: env.IS_SCHEDULED == 'true'
+        run: python src/add_new_data.py
 
       - name: Run ETL + validation
         run: |
           python src/etl_pipeline.py || code=$?
-          # exit 1 = data issues found (expected, report generated), anything else = real failure
+          # exit 1 = data issues found (expected), 2+ = real failure
           if [ "${code:-0}" -ge 2 ]; then exit $code; fi
+
+      - name: Email report
+        if: env.IS_SCHEDULED == 'true'
+        env:
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: python src/notify.py
 
       - name: Upload validation report
         uses: actions/upload-artifact@v4
         with:
-          name: validation-report
+          name: validation-report-${{ github.run_number }}
           path: output/*.xlsx
+          retention-days: 30
+
+      - name: Save new data + history to repo
+        if: env.IS_SCHEDULED == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: run ${{ github.run_number }} - new data + history"
+            git pull --rebase
+            git push
+          fi
